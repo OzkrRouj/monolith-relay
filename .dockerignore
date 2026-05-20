@@ -1,0 +1,20 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  .dockerignore — Monolith Relay Server
+#  Excluye archivos innecesarios del contexto de build de Docker.
+#  Contexto de build pequeño = build más rápido.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# No hay node_modules en el relay (0 dependencias), pero por si acaso
+node_modules/
+
+# Documentación
+*.md
+docs/
+
+# Git
+.git
+.gitignore
+
+# Entorno
+.env
+.env.local
