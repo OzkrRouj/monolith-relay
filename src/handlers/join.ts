@@ -28,6 +28,7 @@ import {
   removeSocketFromSession,
   enqueueMessage,
   drainQueue,
+  isSessionRevoked,
 } from '../session-store';
 
 /**
@@ -75,10 +76,17 @@ export function handleJoin(ws: MonolithSocket, rawData: string | Buffer): void {
     return;
   }
 
-  // 5. Asignar session_id al socket (Bun data)
+  // 5. Verificar que la sesión no esté revocada
+  if (isSessionRevoked(sessionId)) {
+    log('session_revoked_rejected', `session=${sessionId}`);
+    ws.close(4013, 'Session revoked');
+    return;
+  }
+
+  // 6. Asignar session_id al socket (Bun data)
   ws.data = { sessionId };
 
-  // 6. Buscar o crear sesión
+  // 7. Buscar o crear sesión
   let session = getSession(sessionId);
 
   if (!session) {
@@ -93,9 +101,34 @@ export function handleJoin(ws: MonolithSocket, rawData: string | Buffer): void {
     ws.close(4007, 'Session expired');
     return;
   } else if (session.sockets.size >= 2) {
-    log('session_full', `session=${sessionId}`);
-    ws.close(4010, 'Session already has maximum peers');
-    return;
+    // Intentar reemplazar sockets muertos (readyState !== OPEN)
+    let replaced = false;
+    for (const existing of session.sockets) {
+      if (existing.readyState !== WebSocket.OPEN) {
+        log('replacing_dead_socket', `session=${sessionId}`);
+        session.sockets.delete(existing);
+        addSocketToSession(session, ws);
+        replaced = true;
+
+        // Si la sesión ya estaba paired, notificar reconexión al peer
+        if (session.status === 'paired') {
+          const connMsg: RelayMessage = { type: 'peer_connected', session_id: sessionId };
+          const connPayload = JSON.stringify(connMsg);
+          for (const s of session.sockets) {
+            if (s !== ws && s.readyState === WebSocket.OPEN) {
+              try { s.send(connPayload); } catch { s.terminate(); }
+            }
+          }
+          drainQueue(session, ws);
+        }
+        break;
+      }
+    }
+    if (!replaced) {
+      log('session_full', `session=${sessionId}`);
+      ws.close(4010, 'Session already has maximum peers');
+      return;
+    }
   }
 
   // 7. Agregar socket a la sesión

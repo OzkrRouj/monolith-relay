@@ -32,6 +32,7 @@ import {
   removeSocketFromSession,
   cleanupExpiredSessions,
   forEachSession,
+  markSessionRevoked,
 } from './session-store';
 import { handleJoin } from './handlers/join';
 import { forwardMessage } from './handlers/forward';
@@ -74,6 +75,45 @@ const server = Bun.serve<SessionData>({
         ws.close(4009, 'Session not found');
         return;
       }
+
+      // Detectar mensajes de control antes de rate limit
+      try {
+        const text = typeof rawData === 'string' ? rawData : new TextDecoder().decode(rawData);
+        const msg = JSON.parse(text);
+
+        if (msg.type === 'unlink') {
+          log('peer_unlink_requested', `session=${ws.data.sessionId}`);
+          const unlinkMsg: RelayMessage = { type: 'device_unlinked', session_id: ws.data.sessionId };
+          const payload = JSON.stringify(unlinkMsg);
+          for (const peer of session.sockets) {
+            if (peer !== ws && peer.readyState === WebSocket.OPEN) {
+              try { peer.send(payload); } catch { peer.terminate(); }
+            }
+          }
+          clearIdentifyTimeout(ws);
+          removeSocketFromSession(session, ws.data.sessionId, ws);
+          ws.close(4011, 'Unlinked');
+          return;
+        }
+
+        if (msg.type === 'revoke') {
+          log('device_revoked', `session=${ws.data.sessionId}`);
+          markSessionRevoked(ws.data.sessionId);
+          const revokeMsg: RelayMessage = { type: 'peer_revoked' };
+          const payload = JSON.stringify(revokeMsg);
+          for (const peer of session.sockets) {
+            if (peer !== ws && peer.readyState === WebSocket.OPEN) {
+              try { peer.send(payload); } catch { peer.terminate(); }
+            }
+          }
+          for (const peer of session.sockets) {
+            if (peer !== ws) {
+              peer.close(4012, 'Device revoked');
+            }
+          }
+          return;
+        }
+      } catch { /* continuar con flujo normal */ }
 
       if (!consumeToken(session)) {
         log('rate_limit_exceeded', `session=${ws.data.sessionId}`);

@@ -27,6 +27,9 @@ import {
 /** Map<session_id, Session> — todo el estado en RAM. */
 const sessions = new Map<string, Session>();
 
+/** Set<session_id> — sesiones revocadas (no permitir reconexión). */
+const revokedSessions = new Set<string>();
+
 /** WeakMap para los timeouts de identificación de cada socket. */
 const identifyTimeouts = new WeakMap<MonolithSocket, Timer>();
 
@@ -216,4 +219,18 @@ export function forEachSession(fn: (sessionId: string, session: Session) => void
   for (const [sessionId, session] of sessions) {
     fn(sessionId, session);
   }
+}
+
+// ─── Sesiones revocadas ────────────────────────────────────────────────────
+
+export function isSessionRevoked(sessionId: string): boolean {
+  return revokedSessions.has(sessionId);
+}
+
+export function markSessionRevoked(sessionId: string): void {
+  revokedSessions.add(sessionId);
+}
+
+export function unmarkSessionRevoked(sessionId: string): void {
+  revokedSessions.delete(sessionId);
 }

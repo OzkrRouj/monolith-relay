@@ -38,7 +38,7 @@ export type MonolithSocket = ServerWebSocket<SessionData>;
 
 /** Mensajes internos que el relay envía a los peers (no confundir con mensajes E2E). */
 export interface RelayMessage {
-  type: 'peer_connected' | 'peer_disconnected' | 'session_paired' | 'server_shutdown';
+  type: 'peer_connected' | 'peer_disconnected' | 'peer_unlinked' | 'device_unlinked' | 'peer_revoked' | 'session_paired' | 'server_shutdown';
   session_id?: string;
   paired_at?: string;
   expires_at?: string;
