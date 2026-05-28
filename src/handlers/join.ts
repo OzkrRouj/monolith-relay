@@ -124,6 +124,29 @@ export function handleJoin(ws: MonolithSocket, rawData: string | Buffer): void {
         break;
       }
     }
+    // Si todos los sockets parecen OPEN pero ya hay 2, forzar reemplazo del más viejo
+    // (puede ser un socket stale que el relay aún no detectó como cerrado)
+    if (!replaced) {
+      log('force_replacing_socket', `session=${sessionId}`);
+      const oldest = session.sockets.values().next().value;
+      if (oldest) {
+        try { oldest.close(4014, 'Replaced by new connection'); } catch { oldest.terminate(); }
+        session.sockets.delete(oldest);
+        addSocketToSession(session, ws);
+        replaced = true;
+
+        if (session.status === 'paired') {
+          const connMsg: RelayMessage = { type: 'peer_connected', session_id: sessionId };
+          const connPayload = JSON.stringify(connMsg);
+          for (const s of session.sockets) {
+            if (s !== ws && s.readyState === WebSocket.OPEN) {
+              try { s.send(connPayload); } catch { s.terminate(); }
+            }
+          }
+          drainQueue(session, ws);
+        }
+      }
+    }
     if (!replaced) {
       log('session_full', `session=${sessionId}`);
       ws.close(4010, 'Session already has maximum peers');
