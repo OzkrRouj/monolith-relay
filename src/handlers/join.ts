@@ -83,8 +83,9 @@ export function handleJoin(ws: MonolithSocket, rawData: string | Buffer): void {
     return;
   }
 
-  // 6. Asignar session_id al socket (Bun data)
-  ws.data = { sessionId };
+  // 6. Asignar session_id y device_id al socket (Bun data)
+  const deviceId = typeof join.device_id === 'string' ? join.device_id : 'unknown';
+  ws.data = { sessionId, deviceId };
 
   // 7. Buscar o crear sesión
   let session = getSession(sessionId);
@@ -124,14 +125,16 @@ export function handleJoin(ws: MonolithSocket, rawData: string | Buffer): void {
         break;
       }
     }
-    // Si todos los sockets parecen OPEN pero ya hay 2, forzar reemplazo del más viejo
-    // (puede ser un socket stale que el relay aún no detectó como cerrado)
+
+    // Buscar si este dispositivo ya tiene un socket en la sesión (solo si no reemplazamos uno muerto)
     if (!replaced) {
-      log('force_replacing_socket', `session=${sessionId}`);
-      const oldest = session.sockets.values().next().value;
-      if (oldest) {
-        try { oldest.close(4014, 'Replaced by new connection'); } catch { oldest.terminate(); }
-        session.sockets.delete(oldest);
+      const existingDevice = [...session.sockets].find(
+        (s) => s.data.deviceId === ws.data.deviceId
+      );
+      if (existingDevice) {
+        log('replacing_existing_device', `session=${sessionId} device=${ws.data.deviceId}`);
+        try { existingDevice.close(4014, 'Replaced by new connection'); } catch { existingDevice.terminate(); }
+        session.sockets.delete(existingDevice);
         addSocketToSession(session, ws);
         replaced = true;
 
@@ -145,12 +148,11 @@ export function handleJoin(ws: MonolithSocket, rawData: string | Buffer): void {
           }
           drainQueue(session, ws);
         }
+      } else {
+        log('session_full', `session=${sessionId}`);
+        ws.close(4010, 'Session already has maximum peers');
+        return;
       }
-    }
-    if (!replaced) {
-      log('session_full', `session=${sessionId}`);
-      ws.close(4010, 'Session already has maximum peers');
-      return;
     }
   }
 

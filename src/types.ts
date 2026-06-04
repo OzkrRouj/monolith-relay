@@ -8,6 +8,7 @@
  */
 export interface SessionData {
   sessionId: string;
+  deviceId: string;
 }
 
 /**

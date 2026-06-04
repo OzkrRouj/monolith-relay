@@ -191,7 +191,7 @@ const server = Bun.serve<SessionData>({
       );
     }
 
-    const upgraded = server.upgrade(req, { data: { sessionId: '' } });
+    const upgraded = server.upgrade(req, { data: { sessionId: '', deviceId: '' } });
     if (upgraded) return undefined;
     return new Response('This server only accepts WebSocket connections', { status: 426 });
   },
