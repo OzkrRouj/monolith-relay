@@ -143,17 +143,20 @@ const server = Bun.serve<SessionData>({
 
       log('connection_closed', `session=${sessionId} code=${code} reason=${reason}`);
 
-      // Notificar al peer que su contraparte desconectó
-      const peerMsg: RelayMessage = {
-        type: 'peer_disconnected',
-        code,
-        reason: reason?.toString() ?? '',
-      };
-      const payload = JSON.stringify(peerMsg);
+      // Si es un reemplazo intencional (4014), no notificar al peer
+      // El join handler ya envió peer_connected con el nuevo socket
+      if (code !== 4014) {
+        const peerMsg: RelayMessage = {
+          type: 'peer_disconnected',
+          code,
+          reason: reason?.toString() ?? '',
+        };
+        const payload = JSON.stringify(peerMsg);
 
-      for (const peer of session.sockets) {
-        if (peer !== ws && peer.readyState === WebSocket.OPEN) {
-          try { peer.send(payload); } catch { peer.terminate(); }
+        for (const peer of session.sockets) {
+          if (peer !== ws && peer.readyState === WebSocket.OPEN) {
+            try { peer.send(payload); } catch { peer.terminate(); }
+          }
         }
       }
 

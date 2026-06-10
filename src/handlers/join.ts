@@ -93,7 +93,6 @@ export function handleJoin(ws: MonolithSocket, rawData: string | Buffer): void {
   if (!session) {
     session = createSession(sessionId);
     if (!session) {
-      // createSession ya emitió 'max_sessions_reached'
       ws.close(4006, 'Server full');
       return;
     }
@@ -101,59 +100,58 @@ export function handleJoin(ws: MonolithSocket, rawData: string | Buffer): void {
     log('session_expired_rejected', `session=${sessionId}`);
     ws.close(4007, 'Session expired');
     return;
-  } else if (session.sockets.size >= 2) {
-    // Intentar reemplazar sockets muertos (readyState !== OPEN)
-    let replaced = false;
-    for (const existing of session.sockets) {
-      if (existing.readyState !== WebSocket.OPEN) {
-        log('replacing_dead_socket', `session=${sessionId}`);
-        session.sockets.delete(existing);
-        addSocketToSession(session, ws);
-        replaced = true;
+  } else {
+    // Sesión existente — verificar si este dispositivo ya tiene un socket
+    const existingDevice = [...session.sockets].find(
+      (s) => s.data.deviceId === ws.data.deviceId
+    );
 
-        // Si la sesión ya estaba paired, notificar reconexión al peer
-        if (session.status === 'paired') {
-          const connMsg: RelayMessage = { type: 'peer_connected', session_id: sessionId };
-          const connPayload = JSON.stringify(connMsg);
-          for (const s of session.sockets) {
-            if (s !== ws && s.readyState === WebSocket.OPEN) {
-              try { s.send(connPayload); } catch { s.terminate(); }
-            }
+    if (existingDevice) {
+      // Mismo dispositivo reconectando — reemplazar socket viejo
+      log('replacing_existing_device', `session=${sessionId} device=${ws.data.deviceId}`);
+      try { existingDevice.close(4014, 'Replaced by new connection'); } catch { existingDevice.terminate(); }
+      session.sockets.delete(existingDevice);
+
+      if (session.status === 'paired') {
+        const connMsg: RelayMessage = { type: 'peer_connected', session_id: sessionId };
+        const connPayload = JSON.stringify(connMsg);
+        for (const s of session.sockets) {
+          if (s.readyState === WebSocket.OPEN) {
+            try { s.send(connPayload); } catch { s.terminate(); }
           }
-          drainQueue(session, ws);
         }
-        break;
+        drainQueue(session, ws);
       }
-    }
-
-    // Buscar si este dispositivo ya tiene un socket en la sesión (solo si no reemplazamos uno muerto)
-    if (!replaced) {
-      const existingDevice = [...session.sockets].find(
-        (s) => s.data.deviceId === ws.data.deviceId
-      );
-      if (existingDevice) {
-        log('replacing_existing_device', `session=${sessionId} device=${ws.data.deviceId}`);
-        try { existingDevice.close(4014, 'Replaced by new connection'); } catch { existingDevice.terminate(); }
-        session.sockets.delete(existingDevice);
-        addSocketToSession(session, ws);
-        replaced = true;
-
-        if (session.status === 'paired') {
-          const connMsg: RelayMessage = { type: 'peer_connected', session_id: sessionId };
-          const connPayload = JSON.stringify(connMsg);
-          for (const s of session.sockets) {
-            if (s !== ws && s.readyState === WebSocket.OPEN) {
-              try { s.send(connPayload); } catch { s.terminate(); }
-            }
-          }
-          drainQueue(session, ws);
+    } else if (session.sockets.size >= 2) {
+      // Dispositivo diferente y sesión llena — intentar reemplazar socket muerto
+      let replaced = false;
+      for (const existing of session.sockets) {
+        if (existing.readyState !== WebSocket.OPEN) {
+          log('replacing_dead_socket', `session=${sessionId}`);
+          session.sockets.delete(existing);
+          replaced = true;
+          break;
         }
-      } else {
+      }
+
+      if (!replaced) {
         log('session_full', `session=${sessionId}`);
         ws.close(4010, 'Session already has maximum peers');
         return;
       }
+
+      if (session.status === 'paired') {
+        const connMsg: RelayMessage = { type: 'peer_connected', session_id: sessionId };
+        const connPayload = JSON.stringify(connMsg);
+        for (const s of session.sockets) {
+          if (s.readyState === WebSocket.OPEN) {
+            try { s.send(connPayload); } catch { s.terminate(); }
+          }
+        }
+        drainQueue(session, ws);
+      }
     }
+    // size < 2 o reemplazo exitoso — continúa a addSocketToSession
   }
 
   // 7. Agregar socket a la sesión
