@@ -32,11 +32,14 @@ import {
   removeSocketFromSession,
   cleanupExpiredSessions,
   forEachSession,
+  setPulseState,
+  clearPulseState as clearPulseStateInStore,
   markSessionRevoked,
 } from './session-store';
 import { handleJoin } from './handlers/join';
 import { forwardMessage } from './handlers/forward';
-import { CLEANUP_INTERVAL_MS } from './config';
+import { CLEANUP_INTERVAL_MS, STATE_AUTH_SECRET } from './config';
+import { getPulseState, setPulseState, clearPulseStateInStore } from './session-store';
 
 const server = Bun.serve<SessionData>({
   port: PORT,
@@ -170,7 +173,7 @@ const server = Bun.serve<SessionData>({
     },
   },
 
-  // ── HTTP fetch (WebSocket upgrade + health check) ──
+  // ── HTTP fetch (WebSocket upgrade + health + state) ──
   fetch(req, server) {
     const url = new URL(req.url);
 
@@ -192,6 +195,77 @@ const server = Bun.serve<SessionData>({
         }),
         { headers: { 'Content-Type': 'application/json' } },
       );
+    }
+
+    // ── GET /state?sessionId=X ───────────────────────────────────────────
+    // El companion consulta el estado de pulso del desktop vía HTTP.
+    // Permite al widget nativo refrescarse sin abrir la app.
+    if (req.method === 'GET' && url.pathname === '/state') {
+      const sessionId = url.searchParams.get('sessionId');
+      if (!sessionId) {
+        return new Response('Missing sessionId', { status: 400 });
+      }
+      if (STATE_AUTH_SECRET) {
+        const auth = req.headers.get('X-Monolith-Secret');
+        if (auth !== STATE_AUTH_SECRET) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+      }
+      const state = getPulseState(sessionId);
+      return new Response(
+        JSON.stringify({ ok: true, state: state ?? null }),
+        { headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // ── POST /state ──────────────────────────────────────────────────────
+    // El desktop publica el estado de pulso actual.
+    // El companion lo consulta para detectar cambios y refrescar el widget.
+    if (req.method === 'POST' && url.pathname === '/state') {
+      if (STATE_AUTH_SECRET) {
+        const auth = req.headers.get('X-Monolith-Secret');
+        if (auth !== STATE_AUTH_SECRET) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+      }
+      try {
+        const body = await req.json() as {
+          session_id?: string;
+          state?: {
+            isActive: boolean;
+            isPaused: boolean;
+            modo: string;
+            fase: string;
+            taskTitle: string;
+            subtaskTitle: string;
+            proyectoNombre: string;
+            metaNombre: string;
+            timerDuration: number;
+            sessionStartTime: number;
+            totalPausedTime: number;
+            pauseStartTime: number;
+          } | null;
+        };
+        if (!body.session_id) {
+          return new Response('Missing session_id', { status: 400 });
+        }
+        if (body.state === null) {
+          clearPulseStateInStore(body.session_id);
+          log('pulse_state_cleared', `session=${body.session_id}`);
+        } else if (body.state) {
+          setPulseState(body.session_id, {
+            ...body.state,
+            lastUpdate: Date.now(),
+          });
+          log('pulse_state_updated', `session=${body.session_id} active=${body.state.isActive}`);
+        }
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (e) {
+        log('state_post_error', `error=${(e as Error).message}`);
+        return new Response('Bad request', { status: 400 });
+      }
     }
 
     const upgraded = server.upgrade(req, { data: { sessionId: '', deviceId: '' } });

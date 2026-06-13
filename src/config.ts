@@ -40,3 +40,10 @@ export const QUEUE_MAX_SIZE = 1000;
 
 /** Intervalo de limpieza de sesiones expiradas (60 segundos). */
 export const CLEANUP_INTERVAL_MS = 60_000;
+
+/**
+ * Secreto compartido para autenticar llamadas HTTP a /state.
+ * Si está vacío, no se requiere autenticación (modo dev).
+ * El desktop y el companion deben conocer este secreto.
+ */
+export const STATE_AUTH_SECRET = process.env.STATE_AUTH_SECRET ?? '';

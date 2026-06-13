@@ -33,6 +33,43 @@ const revokedSessions = new Set<string>();
 /** WeakMap para los timeouts de identificación de cada socket. */
 const identifyTimeouts = new WeakMap<MonolithSocket, Timer>();
 
+// ─── Estado de pulso por sesión (cache para que el companion lo consulte vía HTTP) ───
+
+/**
+ * Estado del pulso en una sesión. Escribido por el desktop vía HTTP POST /state.
+ * El companion lo lee cada 5s vía GET /state para detectar cambios sin
+ * necesidad de mantener un WebSocket nativo.
+ */
+export interface PulseState {
+  isActive: boolean;
+  isPaused: boolean;
+  modo: string;
+  fase: string;
+  taskTitle: string;
+  subtaskTitle: string;
+  proyectoNombre: string;
+  metaNombre: string;
+  timerDuration: number;
+  sessionStartTime: number;
+  totalPausedTime: number;
+  pauseStartTime: number;
+  lastUpdate: number;
+}
+
+const pulseStates = new Map<string, PulseState>();
+
+export function getPulseState(sessionId: string): PulseState | undefined {
+  return pulseStates.get(sessionId);
+}
+
+export function setPulseState(sessionId: string, state: PulseState): void {
+  pulseStates.set(sessionId, state);
+}
+
+export function clearPulseState(sessionId: string): void {
+  pulseStates.delete(sessionId);
+}
+
 // ─── Getters ─────────────────────────────────────────────────────────────────
 
 export function getSession(sessionId: string): Session | undefined {
