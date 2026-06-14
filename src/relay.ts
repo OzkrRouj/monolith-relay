@@ -39,7 +39,6 @@ import {
 import { handleJoin } from './handlers/join';
 import { forwardMessage } from './handlers/forward';
 import { CLEANUP_INTERVAL_MS, STATE_AUTH_SECRET } from './config';
-import { getPulseState, setPulseState, clearPulseStateInStore } from './session-store';
 
 const server = Bun.serve<SessionData>({
   port: PORT,
@@ -174,7 +173,7 @@ const server = Bun.serve<SessionData>({
   },
 
   // ── HTTP fetch (WebSocket upgrade + health + state) ──
-  fetch(req, server) {
+  async fetch(req, server) {
     const url = new URL(req.url);
 
     if (url.pathname === '/health') {

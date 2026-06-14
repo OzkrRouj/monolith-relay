@@ -148,16 +148,25 @@ export function handleJoin(ws: MonolithSocket, rawData: string | Buffer): void {
             try { s.send(connPayload); } catch { s.terminate(); }
           }
         }
-        drainQueue(session, ws);
+        // Dispositivo NUEVO entrando a sesión existente — purgar cola acumulada
+        // El peer nuevo no debe recibir deltas de antes de su conexión.
+        // Pedirá un snapshot_request explícitamente.
+        session.messageQueue = [];
+        // NO llamar drainQueue aquí — el peer nuevo debe pedir snapshot fresco
       }
     }
     // size < 2 o reemplazo exitoso — continúa a addSocketToSession
   }
 
+  // 8. Determinar si esta es una reconexión o primer pairing
+  // Guard: si la sesión fue PAIRED alguna vez o ya tiene sockets, el nuevo peer
+  // está RECONECTANDO (no es un dispositivo nuevo). Drenar cola, no purgarla.
+  const wasPaired = session.status === 'paired' || session.pairedAt !== undefined || session.sockets.size > 0;
+
   // 7. Agregar socket a la sesión
   addSocketToSession(session, ws);
 
-  // 8. Si ahora hay 2 sockets → pairing completo
+  // 9. Si ahora hay 2 sockets → pairing completo
   if (session.sockets.size === 2) {
     pairSession(session, sessionId);
 
@@ -186,11 +195,13 @@ export function handleJoin(ws: MonolithSocket, rawData: string | Buffer): void {
       }
     }
 
-    // 9. Drenar cola de mensajes acumulados
-    // El socket que NO es el que recién llegó (ws) es quien debe
-    // recibir los mensajes acumulados. Pero en realidad drenamos
-    // hacia AMBOS por si alguno se perdió mensajes.
-    drainQueue(session, ws);
+    // 10. Drenar cola si es reconexión, purgar si es primer pairing
+    if (wasPaired) {
+      drainQueue(session, ws);
+    } else {
+      log('purging_queue_for_new_device', `session=${sessionId} device=${ws.data.deviceId} queue_size=${session.messageQueue.length}`);
+      session.messageQueue = [];
+    }
 
   } else {
     // Solo 1 socket → waiting
