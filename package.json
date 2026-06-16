@@ -1,4 +1,12 @@
 {
+  "name": "monolith-relay",
+  "version": "0.9.0",
+  "private": true,
+  "description": "WebSocket relay server for Monolith Desktop <-> Companion sync",
+  "scripts": {
+    "dev": "bun run --watch src/relay.ts",
+    "start": "bun run src/relay.ts"
+  },
   "dependencies": {},
   "devDependencies": {
     "@types/bun": "^1.3.14"

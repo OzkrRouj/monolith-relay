@@ -59,7 +59,7 @@ COPY src/ .
 #   wget viene preinstalado en alpine. curl no. Agregar curl
 #   sería instalar un paquete solo para el health check.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3005/health || exit 1
 
 # Docker envía SIGTERM por defecto — Bun lo maneja en el código
 STOPSIGNAL SIGTERM
